@@ -1,0 +1,14 @@
+{
+	"appId": "app.shivtrix.pdfpro",
+	"appName": "PdfTrix",
+	"webDir": "www",
+	"backgroundColor": "#040a1c",
+	"android": {
+		"allowMixedContent": false
+	},
+	"plugins": {
+		"SplashScreen": {
+			"launchShowDuration": 0
+		}
+	}
+}

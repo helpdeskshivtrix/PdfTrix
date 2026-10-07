@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">PdfTrix</string>
+    <string name="title_activity_main">PdfTrix</string>
+    <string name="package_name">app.shivtrix.pdfpro</string>
+    <string name="custom_url_scheme">app.shivtrix.pdfpro</string>
+</resources>

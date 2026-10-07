@@ -1,0 +1,22 @@
+{
+  "name": "shivtrix-pdfpro-android",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ShivTrix Pdf Pro - Android (Capacitor)",
+  "scripts": {
+    "sync": "node scripts/prepare.js && npx cap sync android",
+    "assets": "npx capacitor-assets generate --android --assetPath ../resources",
+    "apk:debug": "npm run sync && cd android && ./gradlew assembleDebug",
+    "apk:release": "npm run sync && cd android && ./gradlew assembleRelease"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/filesystem": "^6.0.1",
+    "@capacitor/share": "^6.0.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.2",
+    "@capacitor/assets": "^3.0.5"
+  }
+}
