@@ -1,5 +1,5 @@
 /* PdfTrix service worker: precache everything for full offline use */
-const VERSION = 'v4';
+const VERSION = 'v5';
 const CACHE = 'shivtrix-pdfpro-' + VERSION;
 const CORE = [
   './', './index.html', './app.js', './manifest.json',

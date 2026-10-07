@@ -37,7 +37,7 @@ const targets=()=>S.thSel.size?[...S.thSel].sort((a,b)=>a-b):[S.page];
 const need=()=>{if(!S.pdf)throw new Error('Open a PDF first')};
 function sync(){
   const h=!!S.pdf;
-  $('#empty').hidden=h;$('#pageWrap').hidden=!h;
+  $('#empty').hidden=h;$('#pageWrap').hidden=!h||S.tab==='dash';$('#cont').hidden=!h||S.tab!=='dash';
   $('#pgNum').value=S.page;$('#pgTot').textContent='/ '+(S.n||1);
   $('#dName').textContent=h?S.name:'None';$('#dPages').textContent=h?S.n:'—';$('#dSize').textContent=h?fmt(S.bytes.length):'—';$('#dPend').textContent=pend();
   $('#pendTxt').textContent=pend()?`${pend()} pending. Apply to write into the PDF.`:'No pending marks';
@@ -52,7 +52,7 @@ function tab(t){
   $$('[data-tab]').forEach(b=>b.setAttribute('aria-selected',b.dataset.tab===t));
   $$('.panel').forEach(p=>p.classList.toggle('on',p.id==='tab-'+t&&t!=='dash'));
   const w=WS.includes(t),min=t==='dash';$('#ws').classList.toggle('on',w);$('#ws').classList.toggle('min',min);
-  document.body.classList.toggle('mini',min);
+  document.body.classList.toggle('mini',min);if(!min)clearCont();
   $$('.tp').forEach(p=>p.hidden=!p.dataset.for.split(' ').includes(t));
   if(w){setTool(t==='secure'?'redact':(min||coarse)?'hand':'select');requestAnimationFrame(()=>render())}
   sync();
@@ -140,7 +140,7 @@ $('#dashNew').onclick=safe(async()=>{const d=await PDFDocument.create();d.addPag
 
 /* ========== rendering ========== */
 let rtask=null,rtok=0;
-async function render(){
+async function renderSingle(){
   if(!S.pdf||!WS.includes(S.tab))return;
   const my=++rtok,pg=await S.pdf.getPage(S.page),b=pg.getViewport({scale:1});S.dims={w:b.width,h:b.height};
   const host=$('#view'),aw=Math.max(200,host.clientWidth-24),ah=Math.max(200,host.clientHeight-24);
@@ -156,14 +156,55 @@ async function render(){
   if(my!==rtok)return;
   drawOv();sync();
 }
+
+/* ----- dashboard viewer: continuous scroll like a PDF reader ----- */
+let contObs=null,contTok=0;
+function render(){if(S.tab==='dash')return renderCont();clearCont();return renderSingle()}
+function clearCont(){if(contObs){contObs.disconnect();contObs=null}const c=$('#cont');if(c&&c.firstChild)c.innerHTML=''}
+async function renderCont(){
+  const host=$('#view'),cont=$('#cont');
+  if(!S.pdf){clearCont();return}
+  const my=++contTok;
+  if(S.sizesFor!==S.pdf){const pdf=S.pdf,sz=await Promise.all(Array.from({length:S.n},(_,i)=>pdf.getPage(i+1).then(p=>{const v=p.getViewport({scale:1});return[v.width,v.height]})));if(my!==contTok)return;S.sizes=sz;S.sizesFor=pdf}
+  const aw=Math.max(200,host.clientWidth-16),ah=Math.max(200,host.clientHeight-16),[w0,h0]=S.sizes[0];
+  let z=S.fit==='width'?aw/w0:S.fit==='page'?Math.min(aw/w0,ah/h0):S.z;z=clamp(z,.15,6);S.zv=z;
+  const dpr=Math.min(devicePixelRatio||1,2),keep=S.page,cur=cont.children[keep-1];
+  const frac=cur&&cur.offsetHeight?clamp((host.scrollTop-cur.offsetTop-cont.offsetTop)/cur.offsetHeight,0,1):0;
+  if(contObs)contObs.disconnect();
+  cont.innerHTML='';const fr=document.createDocumentFragment();
+  S.sizes.forEach(([w,h],i)=>{const d=document.createElement('div');d.className='cp';d.dataset.p=i+1;d.style.width=Math.round(w*z)+'px';d.style.height=Math.round(h*z)+'px';fr.append(d)});
+  cont.append(fr);
+  const el=cont.children[keep-1];if(el)host.scrollTop=el.offsetTop+cont.offsetTop+frac*el.offsetHeight-(frac?0:4);
+  contObs=new IntersectionObserver(es=>es.forEach(e=>{e.isIntersecting?paintCp(e.target,z,dpr,my):dropCp(e.target)}),{root:host,rootMargin:'700px 0px'});
+  [...cont.children].forEach(d=>contObs.observe(d));
+  sync();
+}
+async function paintCp(d,z,dpr,my){
+  const key=z.toFixed(3);if(d.dataset.done===key)return;d.dataset.done=key;
+  try{
+    const pg=await S.pdf.getPage(+d.dataset.p);if(my!==contTok)return;
+    const vp=pg.getViewport({scale:z*dpr});let c=d.firstChild;if(!c){c=document.createElement('canvas');d.append(c)}
+    c.width=Math.floor(vp.width);c.height=Math.floor(vp.height);
+    await pg.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;
+  }catch(e){d.dataset.done=''}
+}
+function dropCp(d){const c=d.firstChild;if(c){c.width=0;c.height=0;c.remove()}d.dataset.done=''}
+function gotoCont(p,smooth){const cont=$('#cont'),el=cont.children[p-1];if(el)$('#view').scrollTo({top:el.offsetTop+cont.offsetTop-4,behavior:smooth?'smooth':'auto'})}
+let scT=0;
+$('#view').addEventListener('scroll',()=>{
+  if(S.tab!=='dash'||!S.pdf)return;cancelAnimationFrame(scT);
+  scT=requestAnimationFrame(()=>{const v=$('#view'),cont=$('#cont'),ch=cont.children;if(!ch.length)return;const mid=v.scrollTop+v.clientHeight*.4-cont.offsetTop;let lo=0,hi=ch.length-1;
+    while(lo<hi){const m=(lo+hi+1)>>1;if(ch[m].offsetTop<=mid)lo=m;else hi=m-1}
+    if(lo+1!==S.page){S.page=lo+1;$('#pgNum').value=S.page}});
+},{passive:true});
 let rzT;addEventListener('resize',()=>{clearTimeout(rzT);rzT=setTimeout(()=>{if(S.fit!=='n')render()},150)});
-async function go(p,keep){if(!S.pdf)return;p=clamp(Math.round(p)||1,1,S.n);S.page=p;S.sel=null;if(!keep)S.thSel=new Set();await render();$('#view').scrollTop=0}
+async function go(p,keep){if(!S.pdf)return;p=clamp(Math.round(p)||1,1,S.n);S.page=p;S.sel=null;if(!keep)S.thSel=new Set();if(S.tab==='dash'){$('#pgNum').value=p;gotoCont(p,true);return}await render();$('#view').scrollTop=0}
 $('#prev').onclick=()=>go(S.page-1);$('#next').onclick=()=>go(S.page+1);
 $('#pgNum').onchange=e=>go(+e.target.value);
 /* zoom: fixed steps only (25% to 400%), no free pinch or wheel zoom */
 const ZSTEPS=Array.from({length:16},(_,i)=>(i+1)*25);
 $('#zoomSel').innerHTML='<option value="width">Fit width</option><option value="page">Fit page</option>'+ZSTEPS.map(s=>`<option value="${s/100}">${s}%</option>`).join('');
-const setZoom=(m,v)=>{S.fit=m;if(v)S.z=v;$('#zoomSel').value=m==='n'?String(Math.round(S.z*100)/100):m;render()};
+const setZoom=(m,v)=>{S.fit=m;if(v)S.z=v;$('#zoomSel').value=m==='n'?String(Math.round(S.z*100)/100):m;return render()};
 function stepZoom(d){const c=Math.round(S.zv*100),t=d>0?ZSTEPS.find(s=>s>c):[...ZSTEPS].reverse().find(s=>s<c);if(t)setZoom('n',t/100)}
 $('#zoomIn').onclick=()=>stepZoom(1);$('#zoomOut').onclick=()=>stepZoom(-1);
 $('#zoomSel').onchange=e=>{const v=e.target.value;v==='width'||v==='page'?setZoom(v):setZoom('n',+v)};
@@ -177,8 +218,8 @@ let fsFallback=false,wasFs=false;
 const isFull=()=>!!(document.fullscreenElement||document.webkitFullscreenElement)||fsFallback;
 function applyFs(){
   const on=isFull();document.body.classList.toggle('fs',on);
-  if(on&&!wasFs)$('#ws').classList.add('notools');
-  if(!on&&wasFs)$('#ws').classList.remove('notools');
+  if(on&&!wasFs)$('#ws').classList.add('notools','nothumbs');
+  if(!on&&wasFs)$('#ws').classList.remove('notools','nothumbs');
   wasFs=on;const b=$('#fsBtn');b.textContent=on?'🗗':'⛶';b.title=on?'Exit full screen (Esc)':'Full screen';
   requestAnimationFrame(()=>render());
 }
@@ -191,6 +232,7 @@ async function toggleFull(){
 $('#fsBtn').onclick=toggleFull;
 document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement)fsFallback=false;applyFs()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&fsFallback){fsFallback=false;applyFs()}});
+$('#thT').onclick=()=>{$('#ws').classList.toggle('nothumbs');requestAnimationFrame(()=>render())};
 $('#fsTools').onclick=()=>{$('#ws').classList.toggle('notools');requestAnimationFrame(()=>render())};
 
 /* ========== minimal dashboard buttons ========== */
@@ -203,10 +245,17 @@ $('#ocrT').onclick=()=>sheetFor('ocrBox');$('#ttsT').onclick=()=>sheetFor('ttsBo
 
 /* ========== read aloud (TTS) ========== */
 const TTS=(()=>{
-  const syn=window.speechSynthesis;let tok=0;
+  const syn=window.speechSynthesis,sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  const NP=()=>{const C=window.Capacitor;return C&&C.isNativePlatform&&C.isNativePlatform()&&C.Plugins&&C.Plugins.TextToSpeech};
+  let tok=0,nv=[];
   const ui=on=>{$('#ttsPlay').disabled=on;$('#ttsStop').disabled=!on;$('#ttsPause').disabled=!on;$('#ttsPause').textContent='⏸ Pause'};
-  function voices(){if(!syn)return;$('#ttsVoice').innerHTML='<option value="">Default voice</option>'+syn.getVoices().map(v=>`<option value="${esc(v.voiceURI)}">${esc(v.name)} (${esc(v.lang)})</option>`).join('')}
-  if(syn){voices();syn.onvoiceschanged=voices}
+  async function voices(){
+    const n=NP();
+    if(n){try{const r=await n.getSupportedVoices();nv=(r&&r.voices)||[];$('#ttsVoice').innerHTML='<option value="">Default voice</option>'+nv.map((v,i)=>`<option value="${i}">${esc(v.name)} (${esc(v.lang)})</option>`).join('')}catch{}return}
+    if(syn)$('#ttsVoice').innerHTML='<option value="">Default voice</option>'+syn.getVoices().map(v=>`<option value="${esc(v.voiceURI)}">${esc(v.name)} (${esc(v.lang)})</option>`).join('');
+  }
+  voices();if(syn)syn.onvoiceschanged=voices;if(NP())$('#ttsPause').hidden=true;
+  const guess=t=>/[\u0900-\u097F]/.test(t)?'hi-IN':/[\u0980-\u09FF]/.test(t)?'bn-IN':/[\u0B80-\u0BFF]/.test(t)?'ta-IN':/[\u0C00-\u0C7F]/.test(t)?'te-IN':/[\u0600-\u06FF]/.test(t)?'ar-SA':/[\u0400-\u04FF]/.test(t)?'ru-RU':/[\u3040-\u30FF]/.test(t)?'ja-JP':/[\u4E00-\u9FFF]/.test(t)?'zh-CN':'en-US';
   const chunks=t=>{const out=[];String(t).replace(/\s+/g,' ').trim().split(/(?<=[.!?\u0964\u0965\u061F])\s+/).forEach(s=>{while(s.length>220){let i=s.lastIndexOf(' ',220);if(i<60)i=220;out.push(s.slice(0,i));s=s.slice(i).trim()}if(s)out.push(s)});return out};
   async function text(){
     const m=$('#ttsSrc').value;
@@ -216,20 +265,28 @@ const TTS=(()=>{
     if(!t.trim())throw new Error('No readable text here (scanned page?). Run OCR, then choose "OCR text".');
     return t;
   }
-  function stop(){tok++;if(syn)syn.cancel();ui(false)}
+  async function stop(){tok++;const n=NP();try{if(n)await n.stop();else if(syn)syn.cancel()}catch{}ui(false)}
   async function play(){
-    if(!syn)throw new Error('Read aloud is not supported on this device.');
-    stop();const my=tok,list=chunks(await text());if(my!==tok||!list.length)return;
-    const vo=syn.getVoices().find(v=>v.voiceURI===$('#ttsVoice').value),rate=+$('#ttsRate').value||1;let i=0;ui(true);
+    const n=NP();if(!n&&!syn)throw new Error('Read aloud is not available on this device.');
+    await stop();const my=tok,full=await text(),list=chunks(full);if(my!==tok||!list.length)return;
+    const rate=+$('#ttsRate').value||1,sel=$('#ttsVoice').value;ui(true);
+    if(n){
+      const vi=sel===''?-1:+sel,vo=vi>=0?nv[vi]:null,lang=vo?vo.lang:guess(full);
+      try{for(const s of list){if(my!==tok)return;const o={text:s,lang,rate,pitch:1,volume:1};if(vi>=0)o.voice=vi;await n.speak(o)}}
+      catch(e){if(my===tok)toast('Read aloud failed: '+(e&&e.message||e),'bad')}
+      if(my===tok)ui(false);return;
+    }
+    await sleep(120);if(my!==tok)return;
+    const vo=syn.getVoices().find(v=>v.voiceURI===sel),lang=vo?vo.lang:guess(full);let i=0;
     const next=()=>{if(my!==tok)return;if(i>=list.length){ui(false);return}
-      const u=new SpeechSynthesisUtterance(list[i++]);if(vo){u.voice=vo;u.lang=vo.lang}u.rate=rate;u.onend=next;
-      u.onerror=e=>{if(my!==tok||(e&&/canceled|interrupted/.test(e.error||'')))return;ui(false);toast('Read aloud failed: '+(e&&e.error||'unknown'),'bad')};
+      const u=new SpeechSynthesisUtterance(list[i++]);u.lang=lang;if(vo)u.voice=vo;u.rate=rate;u.onend=next;
+      u.onerror=e=>{if(my!==tok||(e&&/canceled|interrupted/.test(e.error||'')))return;ui(false);toast('Read aloud failed: '+(e&&e.error||'unknown')+'. This device may have no speech voices installed.','bad')};
       syn.speak(u)};
     next();
   }
-  function pause(){if(!syn)return;if(syn.paused){syn.resume();$('#ttsPause').textContent='⏸ Pause'}else if(syn.speaking){syn.pause();$('#ttsPause').textContent='▶ Resume'}}
+  function pause(){if(!syn||NP())return;if(syn.paused){syn.resume();$('#ttsPause').textContent='⏸ Pause'}else if(syn.speaking){syn.pause();$('#ttsPause').textContent='▶ Resume'}}
   $('#ttsPlay').onclick=safe(play);$('#ttsPause').onclick=pause;$('#ttsStop').onclick=stop;
-  addEventListener('pagehide',()=>syn&&syn.cancel());ui(false);
+  addEventListener('pagehide',()=>{try{syn&&syn.cancel()}catch{}});ui(false);
   return{stop};
 })();
 
@@ -482,7 +539,7 @@ $('#ocrRun').onclick=safe(async()=>{
   await busy('OCR…',async()=>{
     for(const p of pages){
       const c=await renderCanvas(await S.pdf.getPage(p),2.2);
-      const r=await Tesseract.recognize(c,lang,{workerPath:new URL('./libs/tesseract/worker.min.js',document.baseURI).href,corePath:new URL('./libs/tesseract/',document.baseURI).href,...(lang==='eng'?{langPath:new URL('./libs/tesseract/lang',document.baseURI).href}:{}),logger:m=>{if(m.status)$('#busyL').textContent=`OCR page ${p}: ${m.status}${m.progress?' '+Math.round(m.progress*100)+'%':''}`}});
+      const r=await Tesseract.recognize(c,lang,{workerBlobURL:false,workerPath:new URL('./libs/tesseract/worker.min.js',document.baseURI).href,corePath:new URL('./libs/tesseract/',document.baseURI).href,...(lang==='eng'?{langPath:new URL('./libs/tesseract/lang',document.baseURI).href}:{}),logger:m=>{if(m.status)$('#busyL').textContent=`OCR page ${p}: ${m.status}${m.progress?' '+Math.round(m.progress*100)+'%':''}`}});
       txt+=(pages.length>1?`--- Page ${p} ---\n`:'')+r.data.text.trim()+'\n\n';out.value=txt;
     }
   });
@@ -689,7 +746,7 @@ document.addEventListener('keydown',e=>{
 });
 addEventListener('dragover',e=>{if(e.dataTransfer&&[...e.dataTransfer.types].includes('Files')){e.preventDefault();$('#dropOv').classList.add('on')}});
 addEventListener('dragleave',e=>{if(!e.relatedTarget)$('#dropOv').classList.remove('on')});
-addEventListener('drop',e=>{if(!(e.dataTransfer&&e.dataTransfer.files.length))return;e.preventDefault();$('#dropOv').classList.remove('on');const fs=[...e.dataTransfer.files];S.tab==='automate'?addQ(fs):safe(openFile)(fs[0])});
+addEventListener('drop',e=>{if(!(e.dataTransfer&&e.dataTransfer.files.length))return;e.preventDefault();$('#dropOv').classList.remove('on');const fs=[...e.dataTransfer.files];S.tab==='automate'?addQ(fs):S.tab==='compress'?czAdd(fs):safe(openFile)(fs[0])});
 const syncNet=()=>{const on=navigator.onLine;$('#net').classList.toggle('off',!on);$('#net span').textContent=on?'Online':'Offline'};
 
 /* ========== files from the OS: Android share / Open with, Windows Open with ========== */
@@ -726,7 +783,120 @@ $('#installBtn').onclick=async()=>{if(!dip)return;dip.prompt();await dip.userCho
 addEventListener('appinstalled',()=>{$('#installBtn').hidden=true});
 if('serviceWorker' in navigator&&/^https?:|^app:/.test(location.protocol)&&!window.__NO_SW__)addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
 if(!window.pdfjsLib||!PDFDocument)toast('Some libraries did not load. Check your connection and reload.','bad');
+
+/* ========== gestures: pinch zoom (snaps to the 25% steps) + swipe to change page ========== */
+(function(){
+  const v=$('#view');let g=null,sw=null;
+  const dist=t=>Math.hypot(t[0].clientX-t[1].clientX,t[0].clientY-t[1].clientY);
+  const live=()=>S.tab==='dash'?$('#cont'):$('#pageWrap');
+  const reset=()=>{const el=live();if(el)el.style.transform='';g=null;sw=null};
+  v.addEventListener('touchstart',e=>{
+    if(!S.pdf)return;
+    if(e.touches.length===2){const el=live();g={d:dist(e.touches)||1,z:S.zv,s:1,top:v.scrollTop,left:v.scrollLeft};sw=null;
+      el.style.transformOrigin=(v.scrollLeft+v.clientWidth/2-el.offsetLeft)+'px '+(v.scrollTop+v.clientHeight/2-el.offsetTop)+'px'}
+    else if(e.touches.length===1&&!g){const t=e.touches[0];sw={x:t.clientX,y:t.clientY,t:Date.now(),top:v.scrollTop<=1,bot:v.scrollTop+v.clientHeight>=v.scrollHeight-2}}
+  },{passive:true});
+  v.addEventListener('touchmove',e=>{
+    if(g&&e.touches.length===2){e.preventDefault();g.s=clamp(dist(e.touches)/g.d,.25/g.z,4/g.z);live().style.transform='scale('+g.s+')'}
+    else if(sw&&(Math.abs(e.touches[0].clientX-sw.x)>12||Math.abs(e.touches[0].clientY-sw.y)>12)&&e.touches.length===1)sw.moved=true;
+  },{passive:false});
+  v.addEventListener('touchend',e=>{
+    if(g){if(e.touches.length>=2)return;
+      const z=clamp(g.z*g.s,.25,4),step=ZSTEPS.reduce((a,b)=>Math.abs(b-z*100)<Math.abs(a-z*100)?b:a),r=(step/100)/g.z,cy=g.top+v.clientHeight/2;
+      live().style.transform='';g=null;sw=null;
+      setZoom('n',step/100).then(()=>{if(S.tab!=='dash')v.scrollTop=cy*r-v.clientHeight/2});return}
+    if(!sw||e.changedTouches.length!==1||!S.pdf)return;
+    const t=e.changedTouches[0],dx=t.clientX-sw.x,dy=t.clientY-sw.y,dt=Date.now()-sw.t,s0=sw;sw=null;
+    const flat=v.scrollWidth<=v.clientWidth+4,can=S.tab==='dash'||S.tool==='hand';
+    if(!can||dt>700)return;
+    if(Math.abs(dx)>70&&Math.abs(dx)>Math.abs(dy)*1.8&&flat)go(S.page+(dx<0?1:-1));
+    else if(S.tab!=='dash'&&Math.abs(dy)>90&&Math.abs(dy)>Math.abs(dx)*1.8){if(dy<0&&s0.bot)go(S.page+1);else if(dy>0&&s0.top)go(S.page-1)}
+  },{passive:true});
+  v.addEventListener('touchcancel',reset,{passive:true});
+})();
+
+/* ========== compress (PDF + JPEG) to a target size ========== */
+const CZ={kind:'pdf',files:[],res:[]};
+const czTarget=()=>Math.max(5,+$('#czSize').value||0)*(+$('#czUnit').value||1)*1024;
+const toJpg=(c,q)=>new Promise(r=>c.toBlob(r,'image/jpeg',q));
+function czDraw(){
+  const box=$('#czList');
+  if(!CZ.files.length){box.innerHTML='';$('#czZip').hidden=true;return}
+  box.innerHTML=CZ.files.map((f,i)=>{const r=CZ.res[i];
+    return `<div class="q"><span>${esc(f.name)}<br><small class="note">${fmt(f.size)}${r?` → <b>${fmt(r.blob.size)}</b> (${r.blob.size<f.size?'-'+Math.round(100-r.blob.size/f.size*100)+'%':'no change'})${r.note?' · '+esc(r.note):''}`:''}</small></span>${r?`<button class="btn sm pri" data-dl="${i}">⬇ Download</button>`:''}</div>`}).join('');
+  $$('#czList [data-dl]').forEach(b=>b.onclick=()=>{const r=CZ.res[+b.dataset.dl];save(r.name,r.blob,CZ.kind==='pdf'?'application/pdf':'image/jpeg')});
+  $('#czZip').hidden=CZ.res.filter(Boolean).length<2;
+}
+function czAdd(list){
+  const ok=[...list].filter(f=>CZ.kind==='pdf'?(/\.pdf$/i.test(f.name)||f.type==='application/pdf'):(/^image\//.test(f.type)||/\.(jpe?g|png|webp)$/i.test(f.name)));
+  if(!ok.length){toast(CZ.kind==='pdf'?'Choose PDF files':'Choose JPEG or image files','warn');return}
+  CZ.files=ok;CZ.res=[];czDraw();
+}
+$$('#czKind button').forEach(b=>b.onclick=()=>{CZ.kind=b.dataset.k;CZ.files=[];CZ.res=[];
+  $$('#czKind button').forEach(x=>x.setAttribute('aria-pressed',x===b));
+  $('#czHint').textContent=CZ.kind==='pdf'?'Choose PDF files to compress':'Choose JPEG or image files to compress';$('#czUse').hidden=CZ.kind!=='pdf';czDraw()});
+$('#czPick').onclick=safe(async()=>{const f=await pickFiles(CZ.kind==='pdf'?'.pdf,application/pdf':'image/*',true);if(f.length)czAdd(f)});
+$('#czUse').onclick=safe(async()=>{need();await flush();CZ.files=[new File([S.bytes],S.name||'document.pdf',{type:'application/pdf'})];CZ.res=[];czDraw()});
+$$('#czPre button').forEach(b=>b.onclick=()=>{const kb=+b.dataset.kb;if(kb>=1024){$('#czUnit').value='1024';$('#czSize').value=kb/1024}else{$('#czUnit').value='1';$('#czSize').value=kb}});
+$('#czZip').onclick=safe(async()=>{const z=new JSZip();CZ.res.forEach(r=>r&&z.file(r.name,r.blob));save('pdftrix-compressed.zip',await z.generateAsync({type:'blob'}))});
+
+async function czJpeg(file,target){
+  if(file.size<=target)return{blob:file,name:file.name,note:'Already below the target size'};
+  const bmp=await createImageBitmap(file);let scale=1,best=null,hit=false;
+  for(let pass=0;pass<10&&!hit;pass++){
+    const w=Math.max(24,Math.round(bmp.width*scale)),h=Math.max(24,Math.round(bmp.height*scale));
+    const c=document.createElement('canvas');c.width=w;c.height=h;const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,w,h);g.drawImage(bmp,0,0,w,h);
+    let lo=.2,hi=.92;const top=await toJpg(c,hi);
+    if(top.size<=target){best=top;hit=true;break}
+    const floor=await toJpg(c,lo);
+    if(floor.size<=target){best=floor;for(let i=0;i<7;i++){const m=(lo+hi)/2,x=await toJpg(c,m);if(x.size<=target){best=x;lo=m}else hi=m}hit=true;break}
+    best=floor;scale*=Math.max(.5,Math.min(.92,Math.sqrt(target/floor.size)*.95));
+  }
+  if(bmp.close)bmp.close();
+  return{blob:best,name:base(file.name)+'-compressed.jpg',note:hit?(scale<1?'Resized to '+Math.round(scale*100)+'%':''):'Smallest possible, target not reached'};
+}
+async function czBuild(pdf,n,f,q,S0,tag){
+  const out=await PDFDocument.create();out.setProducer('PdfTrix');
+  for(let p=1;p<=n;p++){
+    $('#busyL').textContent='Compressing '+tag+': page '+p+' of '+n;
+    const pg=await pdf.getPage(p),b=pg.getViewport({scale:1}),c=await renderCanvas(pg,S0*f);
+    const blob=await toJpg(c,q),im=await out.embedJpg(new Uint8Array(await blob.arrayBuffer()));
+    out.addPage([b.width,b.height]).drawImage(im,{x:0,y:0,width:b.width,height:b.height});c.width=0;c.height=0;
+  }
+  return out.save({useObjectStreams:true});
+}
+async function czPdf(file,target,tag){
+  const bytes=new Uint8Array(await file.arrayBuffer());
+  if(bytes.length<=target)return{blob:file,name:file.name,note:'Already below the target size'};
+  try{const d=await PDFDocument.load(bytes,{ignoreEncryption:true});d.setProducer('PdfTrix');const light=await d.save({useObjectStreams:true});
+    if(light.length<=target)return{blob:new Blob([light],{type:'application/pdf'}),name:base(file.name)+'-compressed.pdf',note:'Text and links kept'}}catch{}
+  const pdf=await openPdfjs(bytes),n=pdf.numPages,S0=2,samp=[];
+  for(const p of new Set([1,Math.ceil(n/2),n]))samp.push(await renderCanvas(await pdf.getPage(p),S0));
+  const est=async(f,q)=>{let tot=0;for(const c of samp){const t=document.createElement('canvas');t.width=Math.max(8,Math.round(c.width*f));t.height=Math.max(8,Math.round(c.height*f));
+    const g=t.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,t.width,t.height);g.drawImage(c,0,0,t.width,t.height);tot+=(await toJpg(t,q)).size}return tot/samp.length*n+n*700+3000};
+  let f=.27,q=.3;
+  for(const ff of [1,.85,.7,.58,.48,.4,.33,.27]){
+    if(await est(ff,.3)>target)continue;
+    let lo=.3,hi=.85;f=ff;
+    if(await est(ff,hi)<=target*.96)q=hi;else{for(let i=0;i<6;i++){const m=(lo+hi)/2;if(await est(ff,m)<=target*.96)lo=m;else hi=m}q=lo}
+    break;
+  }
+  let out=null;
+  for(let a=0;a<3;a++){out=await czBuild(pdf,n,f,q,S0,tag);if(out.length<=target)break;q=Math.max(.2,q*.8);f=Math.max(.2,f*.88)}
+  try{pdf.destroy()}catch{}
+  return{blob:new Blob([out],{type:'application/pdf'}),name:base(file.name)+'-compressed.pdf',note:out.length<=target?'Pages converted to images (text not selectable)':'Smallest possible, target not reached'};
+}
+$('#czRun').onclick=safe(async()=>{
+  if(!CZ.files.length)throw new Error('Choose a file first');
+  const target=czTarget();CZ.res=[];
+  await busy('Compressing…',async()=>{
+    for(let i=0;i<CZ.files.length;i++){const f=CZ.files[i],tag=(i+1)+'/'+CZ.files.length;$('#busyL').textContent='Compressing '+tag+'…';
+      CZ.res[i]=CZ.kind==='pdf'?await czPdf(f,target,tag):await czJpeg(f,target)}
+  });
+  czDraw();toast('Done','ok');
+});
+$('#czUse').hidden=false;czDraw();
 renderQ();padDraw();
 const qt=new URLSearchParams(location.search).get('tab');
-tab(['dash','edit','convert','secure','forms','automate'].includes(qt)?qt:'dash');
+tab(['dash','compress','edit','convert','secure','forms','automate'].includes(qt)?qt:'dash');
 })();
