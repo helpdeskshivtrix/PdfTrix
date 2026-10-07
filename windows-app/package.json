@@ -1,0 +1,130 @@
+{
+  "name": "shivtrix-pdfpro",
+  "productName": "PdfTrix",
+  "version": "1.0.0",
+  "description": "Private, offline-first PDF studio",
+  "author": "ShivTrix",
+  "main": "main.js",
+  "scripts": {
+    "prepare-web": "node scripts/prepare.js",
+    "start": "npm run prepare-web && electron .",
+    "build:win": "npm run prepare-web && electron-builder --win --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "^31.7.3",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "app.shivtrix.pdfpro",
+    "productName": "PdfTrix",
+    "copyright": "ShivTrix",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "app-www/**/*"
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "signAndEditExecutable": true
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "shortcutName": "PdfTrix",
+      "artifactName": "PdfTrix-Setup-${version}.${ext}"
+    },
+    "fileAssociations": [
+      {
+        "ext": "pdf",
+        "name": "PDF document",
+        "role": "Editor"
+      },
+      {
+        "ext": "docx",
+        "name": "Word document",
+        "role": "Editor"
+      },
+      {
+        "ext": "txt",
+        "name": "Text file",
+        "role": "Editor"
+      },
+      {
+        "ext": "md",
+        "name": "Markdown file",
+        "role": "Editor"
+      },
+      {
+        "ext": "jpg",
+        "name": "JPEG image",
+        "role": "Editor"
+      },
+      {
+        "ext": "jpeg",
+        "name": "JPEG image",
+        "role": "Editor"
+      },
+      {
+        "ext": "png",
+        "name": "PNG image",
+        "role": "Editor"
+      },
+      {
+        "ext": "webp",
+        "name": "WebP image",
+        "role": "Editor"
+      },
+      {
+        "ext": "mp3",
+        "name": "MP3 audio",
+        "role": "Editor"
+      },
+      {
+        "ext": "wav",
+        "name": "WAV audio",
+        "role": "Editor"
+      },
+      {
+        "ext": "ogg",
+        "name": "OGG audio",
+        "role": "Editor"
+      },
+      {
+        "ext": "opus",
+        "name": "Opus voice note",
+        "role": "Editor"
+      },
+      {
+        "ext": "m4a",
+        "name": "M4A audio",
+        "role": "Editor"
+      }
+    ],
+    "portable": {
+      "artifactName": "PdfTrix-Portable-${version}.${ext}"
+    }
+  }
+}

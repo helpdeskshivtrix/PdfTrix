@@ -1,0 +1,26 @@
+{
+  "id": "./",
+  "name": "PdfTrix",
+  "short_name": "PdfTrix",
+  "description": "Private, offline-first PDF studio: edit, OCR, redact, encrypt, compare, sign and batch-process PDFs in your browser.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "orientation": "any",
+  "background_color": "#040a1c",
+  "theme_color": "#040a1c",
+  "lang": "en",
+  "categories": ["productivity", "utilities", "business"],
+  "icons": [
+    { "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "./icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Editor", "short_name": "Editor", "url": "./?tab=edit", "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "Security", "short_name": "Security", "url": "./?tab=secure", "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "Batch tools", "short_name": "Batch", "url": "./?tab=automate", "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png" }] }
+  ]
+}
